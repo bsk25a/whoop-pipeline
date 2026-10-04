@@ -2,10 +2,17 @@ name: Sync WHOOP
 
 on:
   schedule:
-    # 11:00 UTC = 7am ET. WHOOP only scores recovery once the night's sleep
-    # closes, so an overnight run would fetch unscored records. Post-wake is
-    # the earliest the data is real.
-    - cron: "0 11 * * *"
+    # WHOOP only scores recovery once the night's sleep closes, so an
+    # overnight run fetches unscored records. Post-wake is the earliest the
+    # data is real, and Bailey is reliably up by 8am but not by 7am.
+    #
+    # Actions cron is UTC-only with no timezone support, so one fixed time
+    # drifts an hour across DST. Running at both 12:00 and 13:00 UTC means
+    # one run always lands at 8am local: 12:00 is 8am EDT (Mar-Nov) and
+    # 13:00 is 8am EST (Nov-Mar). The sync upserts, so the redundant run is
+    # harmless, and the concurrency group below stops the two overlapping.
+    - cron: "0 12 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       days:
