@@ -1,0 +1,59 @@
+name: Sync WHOOP
+
+on:
+  schedule:
+    # 11:00 UTC = 7am ET. WHOOP only scores recovery once the night's sleep
+    # closes, so an overnight run would fetch unscored records. Post-wake is
+    # the earliest the data is real.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days of history to pull (blank = default 10)"
+        required: false
+      backfill:
+        description: "Full backfill (BACKFILL_MONTHS)"
+        type: boolean
+        default: false
+
+# The WHOOP refresh token rotates and lives in a single file in Drive.
+# Two concurrent runs would race on it and lock the account out, so overlap
+# is forbidden rather than queued.
+concurrency:
+  group: whoop-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Sync
+        env:
+          WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
+          WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
+          WHOOP_REFRESH_TOKEN: ${{ secrets.WHOOP_REFRESH_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          BACKFILL_MONTHS: "6"
+        run: |
+          ARGS=""
+          if [ "${{ inputs.backfill }}" = "true" ]; then
+            ARGS="--backfill"
+          elif [ -n "${{ inputs.days }}" ]; then
+            ARGS="--days ${{ inputs.days }}"
+          fi
+          python -m src.sync $ARGS

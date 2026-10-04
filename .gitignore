@@ -1,0 +1,16 @@
+# Nothing in this repo should ever contain a credential.
+# Tokens live in GitHub Actions secrets and in _state.json inside Drive.
+.env
+.env.*
+*.token
+token.json
+credentials.json
+client_secret*.json
+service-account*.json
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
