@@ -264,6 +264,27 @@ def test_whole_month_of_cycles_yields_one_row_per_day():
     assert len(set(dates)) == len(dates), "no two cycles may share a date"
 
 
+def test_merge_drops_a_row_whose_cycle_moved_to_another_date():
+    """
+    Upsert-on-key never deletes, so re-keying a cycle leaves the old row
+    behind forever. This is the real one: cycle 1406489727 appeared on both
+    2026-04-01 (old start-keyed) and 2026-04-02 (new midpoint-keyed).
+    """
+    stale = {"date": "2026-04-01", "cycle_id": "1406489727", "day_strain": "12.48"}
+    fresh = {"date": "2026-04-02", "cycle_id": "1406489727", "day_strain": "12.48"}
+    out = merge_rows([stale], [fresh], key="date", identity="cycle_id")
+    assert [r["date"] for r in out] == ["2026-04-02"]
+
+    # An untouched older row with its own cycle must NOT be swept away.
+    other = {"date": "2026-03-30", "cycle_id": "1400000000", "day_strain": "9.0"}
+    out = merge_rows([other, stale], [fresh], key="date", identity="cycle_id")
+    assert [r["date"] for r in out] == ["2026-03-30", "2026-04-02"]
+
+    # Without identity the old behaviour is unchanged.
+    out = merge_rows([stale], [fresh], key="date")
+    assert len(out) == 2
+
+
 def test_recovery_records_survive_the_raw_archive():
     """
     WHOOP v2 recovery records carry no `id` — only `cycle_id`. Deduping the

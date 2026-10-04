@@ -337,16 +337,43 @@ def build_workout_rows(workouts: list[dict]) -> list[dict]:
     )
 
 
-def merge_rows(existing: list[dict], new: list[dict], key: str) -> list[dict]:
+def merge_rows(
+    existing: list[dict], new: list[dict], key: str, identity: str | None = None
+) -> list[dict]:
     """
     Upsert `new` over `existing` on `key`, newest wins, sorted by key.
 
     Re-syncing a window must not duplicate rows, and late-scored records
     (WHOOP scores recovery only once a sleep closes) must be able to overwrite
     an earlier blank.
+
+    Upsert-on-key alone is not idempotent if the keying itself ever changes:
+    the old row keeps its old key and survives forever, because nothing
+    deletes. That happened when cycles were re-keyed from their start date to
+    their midpoint — one cycle ended up on two dates. `identity` names the
+    column that identifies the underlying record (cycle_id / workout_id); any
+    stale row carrying an identity that a new row has claimed under a
+    different key is dropped.
     """
     merged = {r[key]: r for r in existing if r.get(key)}
     for r in new:
         if r.get(key):
             merged[r[key]] = r
+
+    if identity:
+        claimed = {
+            r[identity]: r[key]
+            for r in new
+            if r.get(identity) and r.get(key)
+        }
+        merged = {
+            k: r
+            for k, r in merged.items()
+            if not (
+                r.get(identity)
+                and r[identity] in claimed
+                and claimed[r[identity]] != k
+            )
+        }
+
     return [merged[k] for k in sorted(merged)]

@@ -155,7 +155,9 @@ def main() -> int:
     daily_new = build_daily_rows(cycles, recoveries, sleeps, workouts)
     workouts_new = build_workout_rows(workouts)
 
-    daily = merge_rows(store.read_csv("daily.csv"), daily_new, key="date")
+    daily = merge_rows(
+        store.read_csv("daily.csv"), daily_new, key="date", identity="cycle_id"
+    )
     store.write_csv("daily.csv", daily, DAILY_COLUMNS)
     log.info("daily.csv: %d rows (%d updated this run)", len(daily), len(daily_new))
 
