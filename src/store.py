@@ -171,6 +171,23 @@ class DriveStore:
 
     # ---------------------------------------------------------------- raw
 
+    @staticmethod
+    def _identity(record: dict) -> str | None:
+        """
+        A stable dedupe key for a verbatim WHOOP record.
+
+        Cycles, sleeps and workouts carry their own `id`. Recovery records do
+        NOT — a recovery is identified by the cycle it scores. Filtering on
+        `id` alone therefore discarded every recovery silently, which is how
+        six months of raw archives ended up with an entire collection missing
+        while the CSV looked fine.
+        """
+        for field in ("id", "cycle_id", "sleep_id"):
+            value = record.get(field)
+            if value is not None:
+                return f"{field}:{value}"
+        return None
+
     def merge_raw(self, month: str, payload: dict[str, list[dict]]) -> None:
         """
         Upsert verbatim records into raw/<month>.json, deduplicating on record id.
@@ -189,14 +206,15 @@ class DriveStore:
                 log.warning("raw/%s is corrupt; rewriting", name)
 
         for collection, records in payload.items():
-            by_id = {
-                str(r.get("id")): r
-                for r in existing.get(collection, [])
-                if r.get("id") is not None
-            }
+            by_id: dict[str, dict] = {}
+            for r in existing.get(collection, []):
+                key = self._identity(r)
+                if key:
+                    by_id[key] = r
             for r in records:
-                if r.get("id") is not None:
-                    by_id[str(r["id"])] = r
+                key = self._identity(r)
+                if key:
+                    by_id[key] = r
             existing[collection] = [by_id[k] for k in sorted(by_id)]
 
         self._write_text(

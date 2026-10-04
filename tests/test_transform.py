@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.transform import (  # noqa: E402
     build_daily_rows,
     build_workout_rows,
+    cycle_date,
     flatten_workout,
     local_date,
     merge_rows,
@@ -225,6 +226,64 @@ def test_rows_are_ordered_by_date():
     day_two = dict(CYCLE, id=93847, start="2026-09-25T13:00:00.000Z")
     rows = build_daily_rows([day_two, CYCLE], [], [], [])
     assert [r["date"] for r in rows] == ["2026-09-23", "2026-09-25"]
+
+
+def test_cycle_near_local_midnight_lands_on_the_day_it_covers():
+    """
+    Real regression. For a late-night sleeper WHOOP's cycle boundary lands
+    either side of local midnight, so keying on the cycle START puts two
+    cycles on one date (one overwriting the other) and leaves the next date
+    with no row. These are real boundaries from 2026-09.
+    """
+    off = "-04:00"
+    # 09-02 02:02 -> 09-02 23:56 local. Genuinely Sept 2.
+    assert cycle_date("2026-09-02T06:02:00Z", "2026-09-03T03:56:00Z", off) == "2026-09-02"
+    # 09-02 23:56 -> 09-04 04:11 local. Starts on the 2nd, but it IS Sept 3.
+    assert cycle_date("2026-09-03T03:56:00Z", "2026-09-04T08:11:00Z", off) == "2026-09-03"
+    # The pair above collided under the old start-keyed scheme.
+    assert local_date("2026-09-02T06:02:00Z", off) == local_date(
+        "2026-09-03T03:56:00Z", off
+    )
+
+
+def test_open_cycle_assumes_a_24_hour_span():
+    # Today's cycle has no end yet; it must still land on today, not yesterday.
+    assert cycle_date("2026-10-04T02:41:19Z", None, "-04:00") == "2026-10-04"
+
+
+def test_whole_month_of_cycles_yields_one_row_per_day():
+    off = "-04:00"
+    boundaries = [
+        ("2026-09-19T08:28:00Z", "2026-09-20T02:27:00Z"),
+        ("2026-09-20T02:27:00Z", "2026-09-21T04:14:00Z"),
+        ("2026-09-21T04:14:00Z", "2026-09-22T02:29:00Z"),
+        ("2026-09-22T02:29:00Z", "2026-09-23T03:22:00Z"),
+    ]
+    dates = [cycle_date(s, e, off) for s, e in boundaries]
+    assert dates == ["2026-09-19", "2026-09-20", "2026-09-21", "2026-09-22"]
+    assert len(set(dates)) == len(dates), "no two cycles may share a date"
+
+
+def test_recovery_records_survive_the_raw_archive():
+    """
+    WHOOP v2 recovery records carry no `id` — only `cycle_id`. Deduping the
+    raw archive on `id` alone discarded every one of them silently.
+    """
+    # Imported here, not at module scope: store.py pulls in the Google client
+    # libraries, and this suite is meant to run on a bare checkout.
+    try:
+        from src.store import DriveStore
+    except ImportError:
+        print("        (skipped: google client libs not installed)", end="")
+        return
+
+    recovery = {"cycle_id": 93845, "sleep_id": "abc", "score": {"recovery_score": 61}}
+    assert DriveStore._identity(recovery) is not None
+    assert DriveStore._identity({"id": 7}) == "id:7"
+    assert DriveStore._identity({"score": {}}) is None
+    # Two recoveries for different cycles must not collapse into one.
+    other = dict(recovery, cycle_id=93846)
+    assert DriveStore._identity(recovery) != DriveStore._identity(other)
 
 
 if __name__ == "__main__":

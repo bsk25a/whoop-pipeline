@@ -125,12 +125,25 @@ def main() -> int:
     by_month: dict[str, dict[str, list[dict]]] = defaultdict(
         lambda: {"cycles": [], "recoveries": [], "sleeps": [], "workouts": []}
     )
+    # A recovery has no `start` of its own, and its `created_at` can fall in the
+    # following month (it is scored after the sleep closes). File it with the
+    # cycle it scores so a month's archive is internally consistent.
+    cycle_month = {
+        c["id"]: (c.get("start") or "")[:7]
+        for c in cycles
+        if c.get("id") is not None
+    }
     for name, records in (
         ("cycles", cycles), ("recoveries", recoveries),
         ("sleeps", sleeps), ("workouts", workouts),
     ):
         for r in records:
-            month = (r.get("start") or r.get("created_at") or "")[:7]
+            month = (
+                cycle_month.get(r.get("cycle_id"), "")
+                or r.get("start")
+                or r.get("created_at")
+                or ""
+            )[:7]
             if len(month) == 7:
                 by_month[month][name].append(r)
 

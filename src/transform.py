@@ -77,6 +77,32 @@ def local_date(ts: str | None, offset: str | None) -> str | None:
     return dt.date().isoformat()
 
 
+def cycle_date(
+    start: str | None, end: str | None, offset: str | None
+) -> str | None:
+    """
+    The local calendar date a WHOOP cycle belongs to.
+
+    Do NOT use the cycle's start. WHOOP's cycle boundary sits at a sleep
+    transition, which for a late-night sleeper lands either side of local
+    midnight. Keying on the start then produces two cycles stamped with the
+    same date (one silently overwriting the other on upsert) while the
+    following date gets no row at all, and the strain that does survive is
+    attributed to the wrong day. In six months of real data that hit 21% of
+    dates.
+
+    The midpoint of the span is unambiguous: a cycle running 23:11 Monday to
+    23:31 Tuesday is Tuesday's day, and its midpoint (11:21 Tuesday) says so.
+    An open cycle has no end yet, so assume a 24-hour span.
+    """
+    s = _parse(start)
+    if s is None:
+        return None
+    e = _parse(end)
+    mid = s + (e - s) / 2 if e is not None and e > s else s + timedelta(hours=12)
+    return local_date(mid.isoformat().replace("+00:00", "Z"), offset)
+
+
 def _parse(ts: str | None) -> datetime | None:
     if not ts:
         return None
@@ -242,7 +268,7 @@ def build_daily_rows(
     rows = []
     for c in sorted(cycles, key=lambda x: x.get("start") or ""):
         offset = c.get("timezone_offset")
-        date = local_date(c.get("start"), offset)
+        date = cycle_date(c.get("start"), c.get("end"), offset)
         if not date:
             continue
 
